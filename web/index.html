@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ResCheck</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1e222b; --line: #2a2f3a;
+    --text: #e6e8ee; --muted: #949cad; --accent: #7aa2f7; --good: #5ec98b;
+    --bad: #e5717d; --warn: #e0b45e; --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.55 ui-sans-serif, -apple-system, "SF Pro Text", Inter, system-ui, sans-serif;
+  }
+  a { color: var(--accent); }
+  header {
+    padding: 18px 24px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+  }
+  h1 { font-size: 17px; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; }
+  #health { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+  .ok { background: var(--good); } .no { background: var(--bad); }
+
+  main { display: grid; grid-template-columns: 380px 1fr; gap: 18px; padding: 18px 24px 60px; align-items: start; }
+  @media (max-width: 1080px) { main { grid-template-columns: 1fr; } }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+
+  label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 5px; }
+  input[type=file], input[type=number], input[type=text], select {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--line);
+    color: var(--text); border-radius: 7px; padding: 8px 9px; font: inherit; font-size: 13px;
+  }
+  input[type=file] { padding: 7px; font-size: 12px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  button {
+    background: var(--accent); color: #0b0d12; border: 0; border-radius: 7px;
+    padding: 10px 14px; font: inherit; font-weight: 650; cursor: pointer; width: 100%; margin-top: 16px;
+  }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+  .hint { font-size: 11.5px; color: var(--muted); margin-top: 7px; }
+
+  .score-head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+  .big { font-size: 46px; font-weight: 680; line-height: 1; letter-spacing: -0.03em; }
+  .of { color: var(--muted); font-size: 15px; }
+  .delta { font-size: 15px; font-weight: 650; padding: 3px 9px; border-radius: 20px; }
+  .delta.up { color: var(--good); background: #5ec98b1f; }
+  .delta.down { color: var(--bad); background: #e5717d1f; }
+  .delta.flat { color: var(--muted); background: #94a0b81a; }
+
+  .bar-row { margin-top: 13px; }
+  .bar-top { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 4px; }
+  .bar-top b { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .bar { height: 6px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 4px; transition: width .5s ease; }
+  .evidence { font-size: 12px; color: var(--muted); margin-top: 5px; }
+
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .chip { font-size: 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 20px; padding: 4px 11px; }
+
+  .rec { border-left: 2px solid var(--line); padding: 2px 0 2px 12px; margin-bottom: 14px; }
+  .rec.edit_now { border-color: var(--good); }
+  .rec.short_task { border-color: var(--warn); }
+  .rec.real_work { border-color: var(--accent); }
+  .rec-head { display: flex; gap: 9px; align-items: baseline; flex-wrap: wrap; }
+  .rec-head b { font-size: 13.5px; font-weight: 620; }
+  .tag { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
+  .pts { margin-left: auto; font-size: 12.5px; color: var(--good); font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rec p { margin: 5px 0 0; font-size: 13px; }
+  .rec .why { color: var(--muted); font-size: 12px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; padding: 0 8px 7px 0; }
+  td { padding: 7px 8px 7px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  td.num { font-variant-numeric: tabular-nums; }
+  tr.best td { background: #7aa2f70f; }
+  .pill { font-size: 11px; padding: 1px 7px; border-radius: 4px; }
+  .pill.kept { color: var(--good); background: #5ec98b1a; }
+  .pill.dropped { color: var(--muted); background: #94a0b81a; }
+
+  #log {
+    background: #0b0d12; border: 1px solid var(--line); border-radius: 8px; padding: 11px 13px;
+    height: 210px; overflow-y: auto; font: 12px/1.65 ui-monospace, "SF Mono", Menlo, monospace;
+    color: #b7bfd0; white-space: pre-wrap;
+  }
+  #log .now { color: var(--text); }
+  iframe { width: 100%; height: 560px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  .dl { display: flex; gap: 9px; margin-top: 12px; flex-wrap: wrap; }
+  .dl a { font-size: 12.5px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 11px; text-decoration: none; color: var(--text); }
+  .empty { color: var(--muted); font-size: 13px; }
+
+  #gateCard { border-color: var(--accent); box-shadow: 0 0 0 1px #7aa2f733; }
+  #gateCard h2 { color: var(--accent); }
+  textarea {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--line);
+    color: var(--text); border-radius: 7px; padding: 9px 10px; font: inherit;
+    font-size: 13px; resize: vertical;
+  }
+  textarea#gateTex { font: 11.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+  .plan { font-size: 12.5px; color: var(--muted); margin: 0 0 12px; }
+  .plan b { color: var(--text); font-weight: 600; }
+  .gate-btns { display: flex; gap: 9px; margin-top: 12px; flex-wrap: wrap; }
+  .gate-btns button { width: auto; margin: 0; flex: 0 0 auto; padding: 9px 13px; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+  summary:hover { color: var(--text); }
+  .quick { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .quick span {
+    font-size: 11.5px; border: 1px solid var(--line); border-radius: 20px;
+    padding: 3px 10px; cursor: pointer; color: var(--muted);
+  }
+  .quick span:hover { color: var(--text); border-color: var(--accent); }
+  .checkbox { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; color: var(--text); }
+  .checkbox input { width: auto; }
+  .note { font-size: 12px; color: var(--muted); border-left: 2px solid var(--line); padding-left: 10px; margin-top: 12px; }
+  svg.spark { width: 100%; height: 64px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ResCheck</h1>
+  <span class="sub">Scores your resume with HackerRank's open-source hiring agent, then rewrites your LaTeX until the score stops improving.</span>
+  <span id="health"></span>
+</header>
+
+<main>
+  <section>
+    <div class="card">
+      <h2>Your resume</h2>
+      <label>PDF <span style="opacity:.6">(optional if you give LaTeX)</span></label>
+      <input type="file" id="pdf" accept="application/pdf">
+      <label>LaTeX source <span style="opacity:.6">(.tex)</span></label>
+      <input type="file" id="tex" accept=".tex">
+      <label>Supporting files <span style="opacity:.6">(.cls, .sty, images)</span></label>
+      <input type="file" id="aux" multiple>
+      <p class="hint">Give both and the loop edits your real template. Give only a
+        PDF and it reconstructs a LaTeX version first.</p>
+    </div>
+
+    <div class="card">
+      <h2>Loop settings</h2>
+      <div class="row">
+        <div><label>Max revisions</label><input type="number" id="iters" value="4" min="0" max="12"></div>
+        <div><label>Stop at score</label><input type="number" id="target" placeholder="none" min="0" max="120"></div>
+      </div>
+      <div class="row">
+        <div><label>Scoring passes</label><input type="number" id="samples" value="1" min="1" max="5"></div>
+        <div><label>Model</label>
+          <select id="model">
+            <option value="claude-opus-5">Opus 5 — best</option>
+            <option value="claude-sonnet-5">Sonnet 5 — cheaper</option>
+            <option value="claude-haiku-4-5">Haiku 4.5 — fastest</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint">The grader is an LLM, so the same resume scores differently
+        run to run. Averaging 3 passes makes “did this edit help?” answerable, at
+        3× the cost.</p>
+      <label class="checkbox">
+        <input type="checkbox" id="interactive" checked>
+        Ask me before each revision
+      </label>
+      <p class="hint">Pauses so you can tell it what to change, or edit the
+        LaTeX yourself. Uncheck to let it run unattended.</p>
+      <button id="go">Score and improve</button>
+      <button id="halt" class="ghost" style="display:none">Stop after this revision</button>
+    </div>
+
+    <div class="card">
+      <h2>Activity</h2>
+      <div id="log"><span class="empty">Waiting to start…</span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="card" id="scoreCard">
+      <h2>Score</h2>
+      <div class="empty">Upload a resume and press <b>Score and improve</b>.</div>
+    </div>
+
+    <div class="card" id="gateCard" style="display:none">
+      <h2 id="gateTitle">Revision — your call</h2>
+      <p class="plan" id="gatePlan"></p>
+      <label>Tell it what to change <span style="opacity:.6">(leave blank to use the planned focus)</span></label>
+      <textarea id="gateNotes" rows="4" placeholder="e.g. Keep the Projects section exactly as it is. Cut Callit.io. Don't add anything I can't back up in an interview."></textarea>
+      <div class="quick" id="quick">
+        <span>Keep it to one page</span>
+        <span>Don't touch my Experience bullets</span>
+        <span>Cut the weakest project entirely</span>
+        <span>No new claims — only rewording</span>
+        <span>Add the repo links I already have</span>
+      </div>
+      <details>
+        <summary>Edit the LaTeX myself first</summary>
+        <textarea id="gateTex" rows="16" spellcheck="false"></textarea>
+        <p class="hint">Saved edits become the base for this revision, so the
+          model builds on your version instead of overwriting it.</p>
+      </details>
+      <div class="gate-btns">
+        <button id="gateGo">Run revision</button>
+        <button id="gateSkip" class="ghost">Skip</button>
+        <button id="gateStop" class="ghost">Stop here</button>
+      </div>
+    </div>
+
+    <div class="card" id="adviceCard" style="display:none">
+      <h2>What to add to max the score</h2>
+      <div id="advice"></div>
+    </div>
+
+    <div class="card" id="histCard" style="display:none">
+      <h2>Revisions</h2>
+      <svg class="spark" id="spark"></svg>
+      <table id="hist"></table>
+    </div>
+
+    <div class="card" id="pdfCard" style="display:none">
+      <h2>Best version</h2>
+      <div class="dl" id="dl"></div>
+      <iframe id="preview" title="Resume preview"></iframe>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let sid = null, es = null, state = null;
+
+fetch('/api/health').then(r => r.json()).then(h => {
+  $('health').innerHTML =
+    `<span class="dot ${h.api_key ? 'ok' : 'no'}"></span>API key ` +
+    `&nbsp;<span class="dot ${h.tectonic ? 'ok' : 'no'}"></span>tectonic`;
+});
+
+function log(msg, live) {
+  const el = $('log');
+  if (el.querySelector('.empty')) el.textContent = '';
+  const line = document.createElement('div');
+  if (live) line.className = 'now';
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+$('go').onclick = async () => {
+  const fd = new FormData();
+  if ($('pdf').files[0]) fd.append('pdf', $('pdf').files[0]);
+  if ($('tex').files[0]) fd.append('tex', $('tex').files[0]);
+  for (const f of $('aux').files) fd.append('aux', f);
+  if (!$('pdf').files[0] && !$('tex').files[0]) {
+    alert('Choose a PDF or a .tex file first.');
+    return;
+  }
+  fd.append('max_iterations', $('iters').value);
+  fd.append('samples', $('samples').value);
+  fd.append('model', $('model').value);
+  fd.append('interactive', $('interactive').checked ? 'true' : 'false');
+  if ($('target').value) fd.append('target_score', $('target').value);
+
+  $('go').disabled = true;
+  $('go').textContent = 'Running…';
+  $('halt').style.display = 'block';
+  $('log').textContent = '';
+
+  const res = await fetch('/api/sessions', { method: 'POST', body: fd });
+  if (!res.ok) {
+    log('Could not start: ' + await res.text());
+    reset();
+    return;
+  }
+  sid = (await res.json()).id;
+  listen();
+  await fetch(`/api/sessions/${sid}/start`, { method: 'POST' });
+};
+
+$('halt').onclick = () => {
+  if (sid) fetch(`/api/sessions/${sid}/stop`, { method: 'POST' });
+  $('halt').disabled = true;
+  $('halt').textContent = 'Stopping…';
+};
+
+function reset() {
+  $('go').disabled = false;
+  $('go').textContent = 'Score and improve';
+  $('halt').style.display = 'none';
+  $('halt').disabled = false;
+  $('halt').textContent = 'Stop after this revision';
+}
+
+function listen() {
+  if (es) es.close();
+  es = new EventSource(`/api/sessions/${sid}/events`);
+  es.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    if (ev.type === 'log') log(ev.message, true);
+    else if (ev.type === 'awaiting_input') openGate(ev);
+    else if (ev.type === 'input_received') closeGate();
+    else if (ev.type === 'iteration_start') log(`\n── Revision ${ev.index} ──`);
+    else if (ev.type === 'advice') renderAdvice(ev.advice);
+    else if (ev.type === 'revision') { state = ev.snapshot; render(); }
+    else if (ev.type === 'done') {
+      state = ev.snapshot; render(); closeGate();
+      log('\nFinished. Best score: ' + ev.total);
+      reset(); es.close();
+    } else if (ev.type === 'error') {
+      log('\nError: ' + ev.message); closeGate();
+      reset(); es.close();
+    }
+  };
+  es.onerror = () => { /* server closes the stream when the run ends */ };
+}
+
+function openGate(ev) {
+  $('gateTitle').textContent = `Revision ${ev.index} — your call`;
+  $('gatePlan').innerHTML =
+    `<b>Planned focus:</b> ${esc(ev.strategy)}`;
+  $('gateNotes').value = '';
+  $('gateTex').value = ev.tex || '';
+  $('gateCard').style.display = 'block';
+  $('gateCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  $('gateNotes').focus();
+  log(`\nPaused before revision ${ev.index} — waiting for you.`);
+}
+
+function closeGate() {
+  $('gateCard').style.display = 'none';
+}
+
+async function answerGate(action) {
+  if (!sid) return;
+  const body = {
+    action,
+    notes: $('gateNotes').value,
+    tex: $('gateTex').value,
+  };
+  closeGate();
+  await fetch(`/api/sessions/${sid}/input`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+$('gateGo').onclick = () => answerGate('continue');
+$('gateSkip').onclick = () => answerGate('skip');
+$('gateStop').onclick = () => answerGate('stop');
+
+// Cmd/Ctrl+Enter submits the checkpoint.
+$('gateNotes').addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') answerGate('continue');
+});
+
+$('quick').addEventListener('click', (e) => {
+  if (e.target.tagName !== 'SPAN') return;
+  const box = $('gateNotes');
+  box.value = (box.value.trim() ? box.value.trim() + ' ' : '') + e.target.textContent + '.';
+  box.focus();
+});
+
+function render() {
+  if (!state || !state.revisions.length) return;
+  const revs = state.revisions;
+  const best = revs[state.best_index];
+  const first = revs[0];
+  const gain = best.score.total - first.score.total;
+
+  const cls = gain > 0.5 ? 'up' : gain < -0.5 ? 'down' : 'flat';
+  const sign = gain > 0 ? '+' : '';
+  let html = `<div class="score-head">
+      <div><span class="big">${best.score.total}</span><span class="of"> / 100</span></div>
+      ${revs.length > 1 ? `<span class="delta ${cls}">${sign}${gain.toFixed(1)} vs original</span>` : ''}
+      <span class="of">${best.label}</span>
+    </div>`;
+
+  for (const c of best.score.categories) {
+    html += `<div class="bar-row">
+      <div class="bar-top"><span>${c.label}</span><b>${c.score} / ${c.max}</b></div>
+      <div class="bar"><i style="width:${(c.score / c.max) * 100}%"></i></div>
+      <div class="evidence">${esc(c.evidence)}</div>
+    </div>`;
+  }
+  html += `<div class="chips">
+      <span class="chip">Bonus +${best.score.bonus}</span>
+      <span class="chip">Deductions −${best.score.deductions}</span>
+      ${best.score.samples > 1 ? `<span class="chip">${best.score.samples} passes, ${best.score.spread} spread</span>` : ''}
+    </div>`;
+  if (best.score.bonus_breakdown)
+    html += `<div class="note"><b>Bonus:</b> ${esc(best.score.bonus_breakdown)}</div>`;
+  if (best.score.deduction_reasons && best.score.deductions > 0)
+    html += `<div class="note"><b>Deductions:</b> ${esc(best.score.deduction_reasons)}</div>`;
+  $('scoreCard').innerHTML = '<h2>Score</h2>' + html;
+
+  // Revision table
+  let rows = `<tr><th>#</th><th>Focus</th><th>Score</th><th>Δ</th><th></th></tr>`;
+  for (const r of revs) {
+    const d = r.delta > 0 ? `+${r.delta}` : r.delta;
+    rows += `<tr class="${r.index === best.index ? 'best' : ''}">
+      <td class="num">${r.index}</td>
+      <td>${r.notes
+            ? `<span class="tag">yours</span> ${esc(r.notes.slice(0, 90))}`
+            : esc(r.strategy.split(':')[0])}</td>
+      <td class="num">${r.score.total}</td>
+      <td class="num">${r.index ? d : '—'}</td>
+      <td>${r.index ? `<span class="pill ${r.accepted ? 'kept' : 'dropped'}">${r.accepted ? 'kept' : 'dropped'}</span>` : ''}</td>
+    </tr>`;
+  }
+  $('hist').innerHTML = rows;
+  $('histCard').style.display = 'block';
+  spark(revs.map(r => r.score.total));
+
+  // Best artefacts
+  if (best.pdf) {
+    $('preview').src = `/api/sessions/${sid}/file/${best.pdf}`;
+    $('dl').innerHTML =
+      `<a href="/api/sessions/${sid}/file/${best.pdf}?download=true" download>Download PDF</a>` +
+      (best.tex ? `<a href="/api/sessions/${sid}/file/${best.tex}?download=true" download>Download .tex</a>` : '') +
+      `<a href="/api/sessions/${sid}/file/${revs[0].pdf}" target="_blank">Original PDF</a>`;
+    $('pdfCard').style.display = 'block';
+  }
+}
+
+function spark(values) {
+  const w = 600, h = 64, pad = 8;
+  const lo = Math.min(...values) - 2, hi = Math.max(...values) + 2;
+  const x = i => pad + (i * (w - 2 * pad)) / Math.max(1, values.length - 1);
+  const y = v => h - pad - ((v - lo) / Math.max(0.001, hi - lo)) * (h - 2 * pad);
+  const pts = values.map((v, i) => `${x(i)},${y(v)}`).join(' ');
+  const dots = values.map((v, i) =>
+    `<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="var(--accent)"/>`).join('');
+  $('spark').setAttribute('viewBox', `0 0 ${w} ${h}`);
+  $('spark').innerHTML =
+    `<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>${dots}`;
+}
+
+const EFFORT = {
+  edit_now: 'the tool can do this',
+  short_task: 'a few hours of real work',
+  real_work: 'weeks of real work',
+};
+
+function renderAdvice(advice) {
+  if (!advice) return;
+  let html = advice.summary ? `<p style="margin:0 0 14px">${esc(advice.summary)}</p>` : '';
+  const order = { edit_now: 0, short_task: 1, real_work: 2 };
+  const recs = [...(advice.recommendations || [])].sort(
+    (a, b) => (order[a.effort] - order[b.effort]) || (b.estimated_points - a.estimated_points));
+  for (const r of recs) {
+    html += `<div class="rec ${r.effort}">
+      <div class="rec-head">
+        <b>${esc(r.title)}</b>
+        <span class="tag">${EFFORT[r.effort] || r.effort}</span>
+        <span class="pts">+${r.estimated_points} pts</span>
+      </div>
+      <p>${esc(r.action)}</p>
+      <p class="why">${esc(r.why)}</p>
+    </div>`;
+  }
+  $('advice').innerHTML = html;
+  $('adviceCard').style.display = 'block';
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"]/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+</script>
+</body>
+</html>
