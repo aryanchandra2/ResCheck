@@ -4,6 +4,18 @@ Scores your resume with [HackerRank's open-source hiring agent](https://github.c
 then rewrites your LaTeX and re-scores the recompiled PDF until the score stops
 improving — and tells you what it *can't* fix by editing.
 
+## Quick start
+
+```bash
+git clone https://github.com/aryanchandra2/ResCheck.git && cd ResCheck
+./setup.sh                      # installs everything (macOS: needs Homebrew for tectonic)
+# paste your Anthropic API key into .env
+./run.sh                        # → http://127.0.0.1:8000
+```
+
+You need Python 3.11+, git, and an [Anthropic API key](https://console.anthropic.com/).
+Everything else `setup.sh` fetches for you. Full walkthrough in **[USAGE.md](USAGE.md)**.
+
 ```
 tex ──► tectonic ──► pdf ──► PyMuPDF ──► Claude (extract) ──► JSON Resume
                                                                    │
@@ -17,19 +29,17 @@ tex ──► tectonic ──► pdf ──► PyMuPDF ──► Claude (extract
 Each loop re-exports the PDF and re-runs the *whole* pipeline, so the score
 always reflects what a grader would actually read — not what we hoped we wrote.
 
-## Setup
+## Setup, in more detail
 
-```bash
-brew install tectonic                 # LaTeX engine
-./setup.sh                            # clones hiring-agent, makes .venv, writes .env
-# then put your ANTHROPIC_API_KEY in .env
-```
+`setup.sh` installs [tectonic](https://tectonic-typesetting.github.io/) via
+Homebrew if it's missing, clones `hiring-agent` at the tested commit, creates
+`.venv/`, installs `requirements.txt`, and writes `.env` from `.env.example`.
+It's idempotent — re-run it after a `git pull`. On Linux install tectonic
+yourself first (see the link), then run the script.
 
-## Run
-
-```bash
-./run.sh          # http://127.0.0.1:8000
-```
+`run.sh` checks all of that is in place and that `.env` has a key, then starts
+the server on `127.0.0.1:8000` (`PORT=9000 ./run.sh` to change). Your resume
+never leaves your machine except as text sent to the Anthropic API.
 
 **[USAGE.md](USAGE.md)** walks through every control, the checkpoint flow, the
 CLI entry points and troubleshooting.

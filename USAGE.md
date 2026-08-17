@@ -21,12 +21,13 @@ requests/hour, which is enough for a few runs but not a long session.
 ## 2. Setup
 
 ```bash
-git clone <this repo> ResCheck
+git clone https://github.com/aryanchandra2/ResCheck.git
 cd ResCheck
 ./setup.sh
 ```
 
-`setup.sh` clones [HackerRank's hiring-agent](https://github.com/interviewstreet/hiring-agent)
+`setup.sh` installs tectonic with Homebrew if it's missing (macOS), clones
+[HackerRank's hiring-agent](https://github.com/interviewstreet/hiring-agent)
 into `hiring-agent/` at the commit ResCheck was tested against, registers the
 Claude model IDs in its `providers.json`, creates `.venv/`, installs
 `requirements.txt`, and copies `.env.example` to `.env`.
@@ -220,6 +221,7 @@ each cycle. Watch your first session in the
 | Symptom | Fix |
 |---|---|
 | Header says no API key | `.env` must live in the repo root and contain `ANTHROPIC_API_KEY=`. Restart `run.sh` after editing. |
+| First compile takes ages | Normal. tectonic downloads the LaTeX packages your template uses on first use and caches them; later compiles take a few seconds. |
 | `tectonic: command not found` | Install it (`brew install tectonic`) and make sure it's on `PATH` for the shell running `run.sh`. |
 | Compile fails on your `.tex` | Upload every `.cls`/`.sty`/image as a supporting file. The log shows the first LaTeX error; the loop will try to repair simple ones automatically. |
 | "compiles here with TeX's default font" warning | Your template requests a font tectonic can't fetch. Scores are still valid (the grader reads text), but the preview will look different from your local build. |
