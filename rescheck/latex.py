@@ -90,7 +90,10 @@ document and the compiler's error output.
 Return the complete corrected LaTeX document and nothing else — no prose, no \
 markdown fences, no commentary. Make the smallest change that resolves the \
 error. Never alter the résumé's wording, facts, or content; only fix what stops \
-it compiling."""
+it compiling. When several fixes would work, choose the one that keeps the \
+rendered document looking exactly as it does now — e.g. resolve a package \
+option clash by deleting the redundant, ignored line rather than by re-applying \
+its options, which would change the layout."""
 
 
 def compile_with_repair(
@@ -130,6 +133,56 @@ def compile_with_repair(
                 )
             )
     raise AssertionError("unreachable")
+
+
+def split_document(tex_source: str) -> tuple[str, str] | None:
+    """Split at ``\\begin{document}`` into (preamble incl. marker, body).
+
+    Returns None when the marker is missing, so callers can skip the layout
+    guard rather than corrupt an unconventional document.
+    """
+    marker = "\\begin{document}"
+    index = tex_source.find(marker)
+    if index == -1:
+        return None
+    cut = index + len(marker)
+    return tex_source[:cut], tex_source[cut:]
+
+
+def page_count(pdf_path: Path) -> int:
+    import fitz
+
+    with fitz.open(pdf_path) as doc:
+        return doc.page_count
+
+
+def font_families(pdf_path: Path) -> set[str]:
+    """Base names of the fonts embedded in a PDF, e.g. {'NimbusRomNo9L'}."""
+    import fitz
+
+    with fitz.open(pdf_path) as doc:
+        return {
+            font[3].split("+")[-1].split("-")[0]
+            for page in doc
+            for font in page.get_fonts()
+        }
+
+
+# Latin/Computer Modern is TeX's default; its appearance in a compiled PDF when
+# the uploaded original used something else is the signature of a font package
+# silently failing under tectonic's XeTeX engine (the legacy PSNFSS packages —
+# times, helvet, palatino… — have no Unicode-encoded shapes, so Times, bold and
+# italic all quietly degrade to Latin Modern Regular).
+_TEX_DEFAULT_PREFIXES = ("LMRoman", "LMSans", "LMMono", "CMR", "CMSS", "CMTT")
+
+
+def fonts_fell_back(original_pdf: Path, built_pdf: Path) -> bool:
+    """True when the compile lost the original's fonts to the TeX default."""
+    built = font_families(built_pdf)
+    uploaded = font_families(original_pdf)
+    built_is_default = any(f.startswith(_TEX_DEFAULT_PREFIXES) for f in built)
+    uploaded_is_default = any(f.startswith(_TEX_DEFAULT_PREFIXES) for f in uploaded)
+    return built_is_default and uploaded and not uploaded_is_default
 
 
 def strip_fences(text: str) -> str:

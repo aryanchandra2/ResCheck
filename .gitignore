@@ -1,9 +1,25 @@
+# secrets
 .env
+.env.*
+!.env.example
+
+# local environment
 .venv/
-runs/
 __pycache__/
 *.pyc
+.vscode/
+.idea/
+.DS_Store
+
+# runtime artefacts
+runs/
 cache/
 resume_evaluations.csv
-.DS_Store
+
+# upstream clone (installed by setup.sh, not vendored)
 hiring-agent/
+
+# personal documents — never commit your own resume
+resume/
+*.log
+*.synctex.gz

@@ -128,6 +128,7 @@ def advise(
     score: dict[str, Any],
     tex_source: str | None = None,
     history: list[dict[str, Any]] | None = None,
+    facts: list[str] | None = None,
     model: str = DEFAULT_MODELS["improve"],
 ) -> dict[str, Any]:
     """Produce the prioritized 'what to add' list shown in the UI."""
@@ -139,6 +140,11 @@ def advise(
         "\n\n# The grader's current verdict\n",
         json.dumps(score, indent=2),
     ]
+    if facts:
+        parts.append(
+            "\n\n# Mechanically verified facts (checked in code, not guessed — "
+            "do not contradict these)\n- " + "\n- ".join(facts)
+        )
     if tex_source:
         parts.append(
             "\n\n# The LaTeX source that produced it\n```latex\n"
@@ -170,11 +176,26 @@ rubric, without changing what is true.
 
 Output rules — these are absolute:
   - Return the COMPLETE LaTeX document, ready to compile. Nothing else.
-  - No markdown fences, no explanation, no preamble, no trailing notes.
-  - Keep the existing document class, packages and visual style. The candidate
-    likes their template; you are editing content, not redesigning.
-  - Keep it to the same page count. A resume that spills onto a second page
-    because you padded it is a worse resume.
+  - No markdown fences, no explanation, no trailing notes.
+
+LAYOUT IS FROZEN. The grader never sees the rendered PDF — the pipeline
+extracts plain text from it and scores that. A visual change cannot earn a
+single point; it can only lose points, by spilling onto another page or by
+duplicating content so it extracts twice and reads as padding. Therefore:
+  - Everything before \\begin{{document}} is read-only. Do not add, remove,
+    reorder or reword anything there — not packages, not geometry, not macros,
+    not the header or contact lines. It is restored verbatim after you finish,
+    so touching it only wastes the revision.
+  - In the body, never add or remove layout commands: no new \\vspace, \\hspace,
+    \\begin{{center}}, font-size switches, rules, or column tricks. Reuse the
+    document's existing section and item environments exactly as they appear.
+  - Never repeat information that already appears elsewhere in the document,
+    such as a links line when the header already carries those links.
+  - The compiled result must have exactly the same page count as the current
+    version. A revision that changes the page count is rejected without being
+    scored.
+  - Someone holding the old and new PDFs side by side should see the same
+    design with different words.
 
 {NO_FABRICATION}
 
@@ -197,6 +218,7 @@ def rewrite_tex(
     strategy: str,
     history: list[dict[str, Any]] | None = None,
     user_notes: str | None = None,
+    facts: list[str] | None = None,
     model: str = DEFAULT_MODELS["improve"],
 ) -> str:
     """Apply the actionable advice to the LaTeX and return the new source."""
@@ -213,6 +235,11 @@ def rewrite_tex(
         "\n\n# This revision's focus\n",
         strategy,
     ]
+    if facts:
+        prompt.append(
+            "\n\n# Mechanically verified facts about what the grader received\n- "
+            + "\n- ".join(facts)
+        )
     if user_notes:
         # The candidate's own instructions outrank both the rubric-derived advice
         # and the scripted focus — it is their resume. The no-fabrication rule is

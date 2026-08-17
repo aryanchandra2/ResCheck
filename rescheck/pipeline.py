@@ -11,6 +11,7 @@ which suits a loop that re-scores a dozen revisions of the same resume.
 from __future__ import annotations
 
 import logging
+import re
 import statistics
 import sys
 from dataclasses import dataclass, field
@@ -86,6 +87,16 @@ def install(extract_model: str, score_model: str) -> None:
     _evaluator.ResumeEvaluator._initialize_llm_provider = _use(
         score_model, DEFAULT_EFFORT["score"]
     )
+
+    # GitHub repo selection builds its own provider straight from llm_utils,
+    # which expects a local Ollama and dies at localhost:11434 — silently
+    # downgrading "pick the candidate's 7 best repos" to "take the first 7".
+    # github.py bound the factory at import time, so patch its copy directly.
+    import github as _github
+
+    _github.initialize_llm_provider = lambda model_name=None: AnthropicProvider(
+        extract_model, DEFAULT_EFFORT["extract"], 16000
+    )
     _installed = True
 
 
@@ -137,7 +148,8 @@ def extract_resume(pdf_path: Path, log: Callable[[str], None] = lambda _: None) 
     from .llm import api_error_hint
 
     log("Extracting resume sections from PDF…")
-    resume_data = PDFHandler().extract_json_from_pdf(str(pdf_path))
+    handler = PDFHandler()
+    resume_data = handler.extract_json_from_pdf(str(pdf_path))
     if resume_data is None:
         # Upstream swallows the cause, so lead with the real API error when
         # there was one rather than blaming the PDF.
@@ -147,7 +159,56 @@ def extract_resume(pdf_path: Path, log: Callable[[str], None] = lambda _: None) 
             or "Could not extract structured data from the PDF. If it is a "
             "scanned image rather than text, the parser has nothing to read."
         )
+    _repair_links(resume_data, handler.extract_text_from_pdf(str(pdf_path)) or "", log)
     return resume_data
+
+
+# The extraction model sometimes writes JSON fragments inside URL string values
+# ("…user','username':null}]}}") — mangling the URL or swallowing the next
+# profile entirely. The real links are verifiably present in the document text,
+# so repair them deterministically rather than re-rolling the LLM.
+_URL_JUNK = re.compile(r"[\"'<>,\\ (){}|`].*$")
+_PROFILE_PATTERNS = {
+    "github": ("GitHub", re.compile(r"github\.com/([A-Za-z0-9-]+)")),
+    "linkedin": ("LinkedIn", re.compile(r"linkedin\.com/in/([A-Za-z0-9\-_%.]+)")),
+}
+
+
+def _clean_url(url: str | None) -> str | None:
+    if not url:
+        return url
+    return _URL_JUNK.sub("", url.strip()).rstrip(".,;:") or None
+
+
+def _repair_links(resume_data: Any, document_text: str, log: Callable[[str], None]) -> None:
+    from models import Profile
+
+    for item in (resume_data.projects or []) + (resume_data.work or []):
+        item.url = _clean_url(item.url)
+
+    basics = resume_data.basics
+    if basics is None:
+        return
+    basics.url = _clean_url(basics.url)
+    profiles = [p for p in (basics.profiles or []) if _clean_url(p.url)]
+    for profile in profiles:
+        profile.url = _clean_url(profile.url)
+
+    present = {(p.network or "").lower() for p in profiles}
+    for key, (network, pattern) in _PROFILE_PATTERNS.items():
+        if key in present:
+            continue
+        match = pattern.search(document_text)
+        if match:
+            log(f"Extraction dropped the {network} link — restored it from the document text.")
+            profiles.append(
+                Profile(
+                    network=network,
+                    username=match.group(1),
+                    url="https://" + match.group(0),
+                )
+            )
+    basics.profiles = profiles
 
 
 def find_github_url(resume_data: Any) -> str | None:
@@ -177,6 +238,74 @@ def build_resume_text(resume_data: Any, github_data: dict | None) -> str:
     if github_data:
         text += convert_github_data_to_text(github_data)
     return text
+
+
+def rubric_facts(resume_data: Any, github_data: dict | None) -> list[str]:
+    """Rubric-relevant facts read deterministically off the extracted data.
+
+    The rubric's biggest mechanical levers — per-project link deductions, the
+    portfolio and LinkedIn bonuses, and the open-source ownership cap — are all
+    checkable in code. Stating them as verified facts stops the advisor from
+    guessing and points the rewriter at the exact lines the grader deducts.
+    """
+    facts: list[str] = []
+
+    projects = list(getattr(resume_data, "projects", None) or [])
+    if projects:
+        missing = [p.name or "unnamed project" for p in projects if not p.url]
+        linked = [p.name or "unnamed project" for p in projects if p.url]
+        if missing:
+            facts.append(
+                "Projects that reached the grader WITHOUT any URL (each one is "
+                "an explicit -3 to -5 deduction): " + ", ".join(missing) + ". "
+                "If the .tex embeds the link only as \\href{url}{name}, the PDF "
+                "text layer may be dropping it — the URL must appear as visible "
+                "text to count."
+            )
+        if linked:
+            facts.append(
+                "Projects that reached the grader with a URL: " + ", ".join(linked)
+            )
+        # Upstream's projects extraction template requests only name,
+        # description and URL, and its serializer never prints technologies —
+        # so this is what the real hiring agent is blind to as well.
+        facts.append(
+            "The grader receives ONLY each project's name, description line and "
+            "URL. Bullet points under a project are never extracted, and the "
+            "tech list is extracted but never shown to the grader. Detail that "
+            "must be seen has to be packed into the description line (scale, "
+            "stack, users, what shipped), or the project moved into the "
+            "Experience section, whose bullets DO reach the grader in full."
+        )
+    else:
+        facts.append("No projects at all were extracted from the resume.")
+
+    basics = getattr(resume_data, "basics", None)
+    if not getattr(basics, "url", None):
+        facts.append(
+            "No portfolio/website URL was extracted from the contact block — "
+            "the +2 portfolio bonus is not being earned."
+        )
+    networks = {
+        (profile.network or "").lower()
+        for profile in (getattr(basics, "profiles", None) or [])
+    }
+    if "linkedin" not in networks:
+        facts.append(
+            "No LinkedIn profile was extracted — the +1 bonus is not being earned."
+        )
+
+    github_projects = (github_data or {}).get("projects") or []
+    if github_projects:
+        types = {p.get("project_type", "self_project") for p in github_projects}
+        if types == {"self_project"}:
+            facts.append(
+                "GitHub shows only self-owned repositories and no contributions "
+                "to other people's projects, so the rubric hard-caps open_source "
+                "at 10 points. No rewording can lift this — only a real merged "
+                "contribution can."
+            )
+    return facts
 
 
 def evaluate(

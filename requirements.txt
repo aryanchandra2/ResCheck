@@ -1,0 +1,11 @@
+# ResCheck + everything hiring-agent needs at runtime.
+anthropic>=0.60
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+PyMuPDF>=1.26.3
+pymupdf4llm
+pydantic>=2
+requests
+Jinja2

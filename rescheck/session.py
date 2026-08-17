@@ -57,6 +57,8 @@ class Session:
     advice: dict[str, Any] | None = None
     github_data: dict = field(default_factory=dict)
     resume_text: str = ""
+    facts: list[str] = field(default_factory=list)
+    page_target: int = 0
     best_tex: str | None = None
     best_index: int = 0
     status: str = "idle"
@@ -197,10 +199,19 @@ class Session:
         pdf = self.dir / "original.pdf"
         tex = self.dir / "source.tex"
 
-        if not pdf.exists():
-            if not tex.exists():
-                raise RuntimeError("Upload a PDF, a .tex file, or both.")
-            self.log("No PDF supplied — compiling your LaTeX to produce one.")
+        if not pdf.exists() and not tex.exists():
+            raise RuntimeError("Upload a PDF, a .tex file, or both.")
+
+        if tex.exists():
+            # Compile the uploaded source up front, even when a PDF came with
+            # it. Every revision descends from this .tex, so a latent error in
+            # it (a package clash, a missing brace) would otherwise resurface
+            # on every single revision — and the repair for it would be the
+            # first crack through which the layout starts drifting.
+            if pdf.exists():
+                self.log("Checking that your LaTeX compiles as uploaded…")
+            else:
+                self.log("No PDF supplied — compiling your LaTeX to produce one.")
             workdir = self._revision_dir(0)
             self._copy_aux(workdir)
             built, fixed_source, repairs = latex.compile_with_repair(
@@ -212,7 +223,34 @@ class Session:
             )
             if repairs:
                 tex.write_text(fixed_source, encoding="utf-8")
-            shutil.copy(built, pdf)
+                self.log(
+                    "Your LaTeX needed a small fix to compile; the repaired "
+                    "version is the base for all revisions."
+                )
+            if not pdf.exists():
+                shutil.copy(built, pdf)
+            # The layout contract: every revision must come back with this
+            # exact page count or it is discarded unscored.
+            self.page_target = latex.page_count(built)
+            if latex.fonts_fell_back(pdf, built):
+                self.log(
+                    "Warning: your .tex compiles here with TeX's default font, "
+                    "not the font in your uploaded PDF. This usually means the "
+                    "class loads a legacy font package (times, helvet, …) that "
+                    "silently fails under tectonic's XeTeX — bold and italics "
+                    "are lost too. Guard it with iftex and load the font via "
+                    "fontspec for XeTeX; every revision PDF will look wrong "
+                    "until then."
+                )
+            uploaded_pages = latex.page_count(pdf)
+            if self.page_target != uploaded_pages:
+                self.log(
+                    f"Note: your .tex compiles to {self.page_target} page(s) "
+                    f"but the uploaded PDF has {uploaded_pages}. Revisions are "
+                    f"held to the .tex's {self.page_target}."
+                )
+        else:
+            self.page_target = latex.page_count(pdf)
 
         self.best_tex = tex.read_text(encoding="utf-8") if tex.exists() else None
 
@@ -241,11 +279,25 @@ class Session:
             self.log("No GitHub profile found on the resume — scoring without it.")
 
         self.resume_text = resume_text
+        self.facts = pipeline.rubric_facts(resume_data, self.github_data)
 
         if self.best_tex is None:
             self.log("No .tex supplied — reconstructing one from the PDF content.")
             self.best_tex = improve.generate_tex(resume_text, model=self.improve_model)
+            workdir = self._revision_dir(0)
+            self._copy_aux(workdir)
+            built, self.best_tex, _repairs = latex.compile_with_repair(
+                self.best_tex,
+                workdir,
+                name="resume",
+                model=self.improve_model,
+                log=self.log,
+            )
             (self.dir / "source.tex").write_text(self.best_tex, encoding="utf-8")
+            # The reconstruction is the layout going forward (the README is
+            # explicit that it won't match the original), so revisions are held
+            # to its page count, not the uploaded PDF's.
+            self.page_target = latex.page_count(built)
 
         self._record(
             index=0,
@@ -310,8 +362,21 @@ class Session:
                 strategy=strategy,
                 history=self._history(),
                 user_notes=notes or None,
+                facts=self.facts,
                 model=self.improve_model,
             )
+
+            # The layout is not the model's to change: scoring is text-only, so
+            # a redesign can only hurt. Restore the preamble verbatim if the
+            # rewrite touched it.
+            base_parts = latex.split_document(self.best_tex or "")
+            new_parts = latex.split_document(new_tex)
+            if base_parts and new_parts and base_parts[0] != new_parts[0]:
+                new_tex = base_parts[0] + new_parts[1]
+                self.log(
+                    f"Revision {i} tried to edit the preamble — restored your "
+                    "original layout and kept only the content changes."
+                )
 
             workdir = self._revision_dir(i)
             self._copy_aux(workdir)
@@ -325,6 +390,16 @@ class Session:
                 )
             except latex.CompileError as exc:
                 self.log(f"Revision {i} would not compile; discarding it.\n{exc.log}")
+                misses += 1
+                continue
+
+            pages = latex.page_count(pdf)
+            if self.page_target and pages != self.page_target:
+                self.log(
+                    f"Revision {i} came out at {pages} page(s) but your resume "
+                    f"is {self.page_target} — the layout must stay the same, "
+                    "so it is discarded without scoring."
+                )
                 misses += 1
                 continue
 
@@ -364,6 +439,7 @@ class Session:
             )
             if accepted:
                 self.resume_text = _text
+                self.facts = pipeline.rubric_facts(_resume_data, self.github_data)
                 self._refresh_advice()
 
     # ------------------------------------------------------------- plumbing
@@ -391,6 +467,7 @@ class Session:
             score=best.score,
             tex_source=self.best_tex,
             history=self._history(),
+            facts=self.facts,
             model=self.improve_model,
         )
         self.emit("advice", advice=self.advice)

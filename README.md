@@ -21,10 +21,8 @@ always reflects what a grader would actually read — not what we hoped we wrote
 
 ```bash
 brew install tectonic                 # LaTeX engine
-python3 -m venv .venv
-.venv/bin/pip install "PyMuPDF>=1.26.3" pydantic requests pymupdf4llm Jinja2 \
-    python-dotenv fastapi "uvicorn[standard]" python-multipart anthropic
-echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
+./setup.sh                            # clones hiring-agent, makes .venv, writes .env
+# then put your ANTHROPIC_API_KEY in .env
 ```
 
 ## Run
@@ -32,6 +30,9 @@ echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
 ```bash
 ./run.sh          # http://127.0.0.1:8000
 ```
+
+**[USAGE.md](USAGE.md)** walks through every control, the checkpoint flow, the
+CLI entry points and troubleshooting.
 
 Upload a PDF, a `.tex`, or both, plus any `.cls`/`.sty` your template needs.
 
@@ -66,6 +67,21 @@ the score can never go backwards. After `patience` (2) consecutive misses the
 loop stops and says so — that's the signal that document-side gains are
 exhausted and what's left needs real work.
 
+**Your formatting is frozen.** The grader never sees the rendered PDF — it
+scores text extracted from it — so a visual redesign cannot earn points, only
+lose them. The loop enforces this in code, not just prompts: everything before
+`\begin{document}` is restored verbatim if the model touches it, and any
+revision whose page count differs from your original PDF is discarded without
+being scored. The one exception is you: LaTeX you hand-edit at a checkpoint
+becomes the new baseline, layout changes included.
+
+The advice panel also includes facts checked deterministically against what the
+grader actually received — which projects arrived without a URL (an explicit
+per-project deduction), whether the portfolio and LinkedIn bonuses registered,
+and whether GitHub shows only self-owned repos (which hard-caps open source at
+10). Those come from the extracted JSON Resume and GitHub data, not from the
+model's guesswork.
+
 **The grader is an LLM and its scores are noisy.** The same resume can swing
 several points between runs; the upstream README links analyses measuring this.
 Set *Scoring passes* to 3 to average it out at 3× the cost — otherwise treat a
@@ -88,10 +104,23 @@ it. The advice panel separates these honestly:
 | `a few hours of real work` | Add a demo link, write a README, publish a post |
 | `weeks of real work` | Ship a project, land a merged PR on a real OSS repo |
 
+## The parse test
+
+The grader can only score what survives extraction — notably, it receives just
+the name, description line and URL of each project (bullets beneath them are
+never extracted). To verify a PDF survives the full extraction with links,
+work bullets and dense project descriptions intact:
+
+```bash
+.venv/bin/python -m rescheck.parsecheck path/to/resume.pdf
+```
+
+Exit code 0 means every check passed.
+
 ## Layout
 
 ```
-hiring-agent/        upstream clone; only providers.json was touched (model IDs)
+hiring-agent/        upstream clone (gitignored; setup.sh fetches it and registers model IDs)
 rescheck/llm.py      native Anthropic SDK — provider, structured output, retries
 rescheck/pipeline.py drives hiring-agent's extractor + evaluator
 rescheck/latex.py    tectonic compile, with an LLM repair loop for broken TeX
